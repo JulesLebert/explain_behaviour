@@ -8,7 +8,10 @@ import seaborn as sns
 import matplotlib.colors as mcolors
 from sklearn.model_selection import train_test_split
 from sklearn.inspection import permutation_importance
-from sklearn.metrics import balanced_accuracy_score, f1_score, confusion_matrix, log_loss
+from sklearn.metrics import (
+    balanced_accuracy_score, f1_score, confusion_matrix, 
+    log_loss, mean_squared_error, mean_absolute_error, r2_score
+)
 from imblearn.over_sampling import SMOTE
 from typing import Dict, Tuple, Optional, List, Union
 import optuna
@@ -23,13 +26,17 @@ class BehavioralAnalysisGBM:
     def __init__(
         self,
         save_path: Optional[Path] = None,
-        random_state: int = 123
+        random_state: int = 123,
+        mode: str = 'classification'  # 'classification' or 'regression'
     ):
         self.save_path = save_path or Path.cwd() / 'results'
         self.random_state = random_state
+        self.mode = mode
         self.model = None
         self.shap_values = None
         self.feature_names = None
+        self.explainer = None
+        self.metrics = None
 
     def prepare_data(
         self,
@@ -75,7 +82,7 @@ class BehavioralAnalysisGBM:
 
         return X_train, X_test, y_train, y_test, cat_mappings
 
-    def load_parameters(self, param_path: Optional[Path] = None) -> Dict:
+    def load_parameters(self, param_path: Optional[Path] = None, filename: str = 'best_params.npy') -> Dict:
         """
         Load previously saved hyperparameters.
         
@@ -86,7 +93,7 @@ class BehavioralAnalysisGBM:
             Dict of parameters
         """
         if param_path is None:
-            param_path = self.save_path / 'optuna_studies' / 'best_params.npy'
+            param_path = self.save_path / 'optuna_studies' / filename
             
         if not param_path.exists():
             raise FileNotFoundError(f"No saved parameters found at {param_path}")
@@ -102,7 +109,7 @@ class BehavioralAnalysisGBM:
         """
         Save parameters to file.
         """
-        save_dir = self.save_path / 'optuna_studies'
+        save_dir = self.save_path / '_optuna_studies'
         save_dir.mkdir(exist_ok=True, parents=True)
         param_path = save_dir / filename
         np.save(param_path, params)
@@ -120,6 +127,9 @@ class BehavioralAnalysisGBM:
         """
         Train the LightGBM model and return performance metrics.
         """
+        if use_smote and self.mode == 'regression':
+            raise ValueError("SMOTE is not supported for regression tasks")
+
         if use_smote:
             smote = SMOTE(random_state=self.random_state)
             X_train_smote, y_train_smote = smote.fit_resample(X_train, y_train)
@@ -127,33 +137,49 @@ class BehavioralAnalysisGBM:
             X_train_smote, y_train_smote = X_train, y_train
 
         default_params = {
-            'objective': 'binary',
             'random_state': self.random_state,
             'n_jobs': -1,
             'verbosity': -1
         }
         
+        if self.mode == 'classification':
+            default_params['objective'] = 'binary'
+            model_class = lgb.LGBMClassifier
+            eval_metric = "binary_logloss"
+        else:
+            default_params['objective'] = 'regression'
+            model_class = lgb.LGBMRegressor
+            eval_metric = "mse"
+        
         if params:
             default_params.update(params)
 
-        self.model = lgb.LGBMClassifier(**default_params)
+        self.model = model_class(**default_params)
         
         self.model.fit(
             X_train_smote,
             y_train_smote,
             eval_set=[(X_test, y_test)],
-            eval_metric="binary_logloss",
+            eval_metric=eval_metric,
             callbacks=[lgb.early_stopping(stopping_rounds=300)]
         )
 
-        # Calculate metrics
+        # Calculate metrics based on mode
         y_pred = self.model.predict(X_test)
-        metrics = {
-            'balanced_accuracy': balanced_accuracy_score(y_test, y_pred),
-            'balanced_accuracy_train': balanced_accuracy_score(y_train, self.model.predict(X_train)),
-            'f1_score': f1_score(y_test, y_pred),
-            'confusion_matrix': confusion_matrix(y_test, y_pred)
-        }
+        if self.mode == 'classification':
+            metrics = {
+                'balanced_accuracy': balanced_accuracy_score(y_test, y_pred),
+                'balanced_accuracy_train': balanced_accuracy_score(y_train, self.model.predict(X_train)),
+                'f1_score': f1_score(y_test, y_pred),
+                'confusion_matrix': confusion_matrix(y_test, y_pred)
+            }
+        else:
+            metrics = {
+                'mse': mean_squared_error(y_test, y_pred),
+                'rmse': np.sqrt(mean_squared_error(y_test, y_pred)),
+                'mae': mean_absolute_error(y_test, y_pred),
+                'r2': r2_score(y_test, y_pred)
+            }
 
         return metrics
 
@@ -163,97 +189,127 @@ class BehavioralAnalysisGBM:
         y_test: pd.Series
     ) -> Tuple[np.ndarray, Dict]:
         """
-        Calculate SHAP values and permutation importance.
+        Calculate permutation importance.
         """
        
         perm_result = permutation_importance(
             self.model, X_test, y_test,
             n_repeats=100,
-            random_state=self.random_state
+            random_state=self.random_state,
+            scoring='neg_mean_squared_error' if self.mode == 'regression' else None
         )
         
         return perm_result
 
     def plot_results(
         self,
-        X: pd.DataFrame,
-        X_train,
-        X_test,
-        perm_result: Dict,
-        interaction_features: List[Tuple[str, str]],
-        file_prefix: str,
-        save_prefix: str = 'analysis',
-        cat_mappings: Optional[Dict] = None
+        interaction_features: Optional[List[Tuple[str, str]]] = None,
+        file_prefix: Optional[str] = None,
+        save_prefix: Optional[str] = None,
     ):
-        """
-        Generate and save visualization plots.
-        """
+        """Generate and save visualization plots."""
+        if not hasattr(self, 'analysis_results'):
+            raise ValueError("No analysis results found. Run run_analysis() first.")
+
+        # Use stored values if not provided
+        interaction_features = interaction_features or self.analysis_results['interaction_features']
+        file_prefix = file_prefix or self.analysis_results['file_prefix']
+        save_prefix = save_prefix or self.analysis_results['save_prefix']
+
         # Create save directory
         save_dir = self.save_path / save_prefix
         save_dir.mkdir(exist_ok=True, parents=True)
 
-        cmap = sns.color_palette("flare", as_cmap=True)
+        # Extract data from results
+        X = pd.concat([self.analysis_results['X_train'], self.analysis_results['X_test']])
+        X_train = self.analysis_results['X_train']
+        X_test = self.analysis_results['X_test']
+        shap_values = self.analysis_results['shap_values']
+        perm_result = self.analysis_results['perm_result']
+        cat_mappings = self.analysis_results['cat_mappings']
+        feature_names = self.analysis_results['feature_names']
 
+        # Set default interaction features if none provided
+        if interaction_features is None:
+            top_features = pd.Series(
+                np.abs(shap_values).mean(0),
+                index=feature_names
+            ).nlargest(2).index
+            interaction_features = [(top_features[0], top_features[1])]
 
+        # Generate plots
+        self._plot_shap_waterfall(X, save_dir, file_prefix)
+        self._plot_feature_importance(
+            X, X_train, X_test, shap_values, perm_result,
+            save_dir, file_prefix
+        )
+        self._plot_interactions(
+            X, shap_values, interaction_features,
+            save_dir, file_prefix, cat_mappings
+        )
+        
+
+    def _plot_shap_waterfall(self, X, save_dir, file_prefix):
+        """Plot SHAP waterfall plot."""
+        np.random.seed(42)
+        trial = np.random.randint(0, X.shape[0])
+        shap.waterfall_plot(
+            self.explainer(X)[trial],
+            show=False,
+        )
+        fig = plt.gcf()
+        fig.tight_layout()
+        for ext in ['png', 'pdf']:
+            fig.savefig(save_dir / f'{file_prefix}_shap_waterfall.{ext}', 
+                       dpi=300, bbox_inches='tight')
+
+    def _plot_feature_importance(self, X, X_train, X_test, shap_values, 
+                               perm_result, save_dir, file_prefix):
+        """Plot feature importance plots."""
+        cmap = "flare"
         fig, ax_dict = plottings.full_shap_plot(
             xg_reg=self.model,
-            shap_values=self.shap_values,
-            # shap_values2=shap_values2,
+            shap_values=shap_values,
             X=X,
             X_train=X_train,
             X_test=X_test,
             perm_result=perm_result,
             cmapcustom=cmap,
-            # cmapsummary=cmapsummary,
         )
 
-        fig.suptitle(f'Test balanced accuracy: {self.metrics["balanced_accuracy"]}')
+        # Set appropriate title based on mode
+        metric_name = 'R²' if self.mode == 'regression' else 'Balanced Accuracy'
+        metric_value = self.metrics['r2'] if self.mode == 'regression' else self.metrics['balanced_accuracy']
+        fig.suptitle(f'Test {metric_name}: {metric_value:.3f}')
         fig.tight_layout()
         for ext in ['png', 'pdf']:
-            fig.savefig(save_dir / f'{file_prefix}_feature_importance.{ext}', dpi=300, bbox_inches='tight')
+            fig.savefig(save_dir / f'{file_prefix}_feature_importance.{ext}', 
+                       dpi=300, bbox_inches='tight')
 
+    def _plot_interactions(self, X, shap_values, interaction_features,
+                          save_dir, file_prefix, cat_mappings):
+        """Plot interaction plots."""
         shap_interaction_values = self.explainer.shap_interaction_values(X)
-        self.shap_interaction_values = shap_interaction_values
-
         X_disp = X.copy()
-
-        # if cat_mappings is not None:
-        #     for cat, d in cat_mappings.items():
-        #         X_disp[cat] = X_disp[cat].map(d) 
+        cmap = "flare"
 
         for (feature_a, feature_b) in interaction_features:
-            fig, axes = plt.subplots(
-                1, 3,
-                figsize=(15,4),
-                )
+            fig, axes = plt.subplots(1, 3, figsize=(15,4))
             plottings.plot_interaction_single(
                 X,
                 X_disp,
-                self.shap_values, 
+                shap_values, 
                 shap_interaction_values, 
                 feature_a,
                 feature_b,
                 axes,
                 cmap,
-                )       
+            )       
             sns.despine(fig, trim=True)  
             fig.tight_layout()
             for ext in ['png', 'pdf']:
-                fig.savefig(save_dir / f'{file_prefix}_{feature_a}_{feature_b}_shap_interaction.{ext}', dpi=300,)      
-
-        # fig, axes = plottings.plot_interactions_full(
-        #     model=self.model, 
-        #     X=X, 
-        #     shap_values=self.shap_values,
-        #     shap_interaction_values=shap_interaction_values,
-        #     interactions=interaction_features,
-        #     cat_mappings=cat_mappings,
-        #     cmap=cmap,
-        # )
-        # fig.tight_layout()
-        # for ext in ['png', 'pdf']:
-        #     fig.savefig(save_dir / f'{file_prefix}_shap_interaction.{ext}', dpi=300,)
-
+                fig.savefig(save_dir / f'{file_prefix}_{feature_a}_{feature_b}_shap_interaction.{ext}', 
+                           dpi=300)
 
     def optimize_parameters(
         self,
@@ -279,7 +335,6 @@ class BehavioralAnalysisGBM:
                 "min_split_gain": trial.suggest_float("min_split_gain", 0, 20),
                 "bagging_freq": trial.suggest_int("bagging_freq", 1, 20),
                 "feature_fraction": trial.suggest_float("feature_fraction", 0.5, 1),
-                "scale_pos_weight": trial.suggest_float("scale_pos_weight", 1, 10),
                 "min_child_weight": trial.suggest_float("min_child_weight", 0.001, 300, log=True),
                 "max_bin": trial.suggest_int("max_bin", 100, 1000),
                 "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 20, 600),
@@ -287,36 +342,33 @@ class BehavioralAnalysisGBM:
                 "n_estimators": trial.suggest_int("n_estimators", 100, 1000),
             }
 
-            model = lgb.LGBMClassifier(
-                objective="binary",
-                random_state=self.random_state,
-                verbosity=-1,
-                **param_grid,
-            )
+            if self.mode == 'classification':
+                param_grid["scale_pos_weight"] = trial.suggest_float("scale_pos_weight", 1, 10)
+
+            model = lgb.LGBMClassifier(**param_grid) if self.mode == 'classification' else lgb.LGBMRegressor(**param_grid)
+            model.set_params(random_state=self.random_state, verbosity=-1)
 
             model.fit(
                 X_train,
                 y_train,
                 eval_set=[(X_valid, y_valid)],
-                eval_metric="binary_logloss",
-                callbacks=[
-                    lgb.early_stopping(stopping_rounds=100),
-                ],
+                eval_metric="binary_logloss" if self.mode == 'classification' else "mse",
+                callbacks=[lgb.early_stopping(stopping_rounds=100)],
             )
 
-            preds = model.predict_proba(X_valid)[:, 1]
-            return log_loss(y_valid, preds)
+            preds = model.predict_proba(X_valid)[:, 1] if self.mode == 'classification' else model.predict(X_valid)
+            return log_loss(y_valid, preds) if self.mode == 'classification' else mean_squared_error(y_valid, preds)
 
         # Create study
-        study = optuna.create_study(direction="minimize", study_name="LGBM Classifier")
+        study = optuna.create_study(direction="minimize", study_name="LGBM " + self.mode.capitalize())
 
         # Split data for optimization
         X_train_opt, X_valid, y_train_opt, y_valid = train_test_split(
             X_train, y_train, test_size=0.2, random_state=self.random_state
         )
 
-        # Apply SMOTE if requested
-        if use_smote:
+        # Apply SMOTE if requested (only for classification)
+        if use_smote and self.mode == 'classification':
             smote = SMOTE(random_state=self.random_state)
             X_train_smote, y_train_smote = smote.fit_resample(X_train_opt, y_train_opt)
         else:
@@ -330,16 +382,16 @@ class BehavioralAnalysisGBM:
 
         # Print results
         print("Number of finished trials: ", len(study.trials))
-        print(f"Best value of - logloss: {study.best_value:.5f}")
+        print(f"Best value of - {'logloss' if self.mode == 'classification' else 'mse'}: {study.best_value:.5f}")
         print(f"Best params:")
         for key, value in study.best_params.items():
             print(f"\t{key}: {value}")
 
         # Save study if requested
         if save_study and self.save_path:
-            study_path = self.save_path / f'{file_prefix}_optuna_studies'
+            study_path = self.save_path / 'optuna_studies'
             study_path.mkdir(exist_ok=True, parents=True)
-            joblib.dump(study, study_path / f'{file_prefix}_optuna_study.pkl')
+            joblib.dump(study, study_path / f'{file_prefix}_{self.mode}_optuna_study.pkl')
 
         return study.best_params
 
@@ -378,22 +430,25 @@ class BehavioralAnalysisGBM:
             outcome_col,
             categorical_cols
         )
+        
         # Handle parameters
+        param_file = f'{file_prefix}_{self.mode}_best_params.npy'
         if optimize:
             print("Optimizing hyperparameters...")
             params = self.optimize_parameters(
                 X_train,
                 y_train,
                 use_smote=use_smote,
-                n_trials=n_trials
+                n_trials=n_trials,
+                file_prefix=file_prefix,
             )
             # Save the optimized parameters
-            self.save_parameters(params)
+            self.save_parameters(params, filename=param_file)
             print("Optimization completed.")
         elif params is None:
             # Try to load parameters if not provided and not optimizing
             try:
-                params = self.load_parameters(param_path)
+                params = self.load_parameters(param_path, filename=param_file)
             except FileNotFoundError:
                 print("No saved hyperparameters found. Using default parameters.")
                 params = {}
@@ -408,37 +463,106 @@ class BehavioralAnalysisGBM:
         shap_values = self.explainer.shap_values(X)
         self.shap_values = shap_values
 
+        # Calculate feature importance
         perm_result = self.calculate_feature_importance(X_test, y_test)
 
-        # Generate plots
-        if interaction_features is None:
-            # Default to top 2 most important features for interaction
-            top_features = pd.Series(
-                np.abs(shap_values).mean(0),
-                index=self.feature_names
-            ).nlargest(2).index
-            interaction_features = [(top_features[0], top_features[1])]
+        # Calculate feature importance scores
+        feature_importance = pd.Series(
+            np.abs(self.shap_values).mean(0),
+            index=self.feature_names
+        ).sort_values(ascending=False)
 
-        self.plot_results(
-            X,
-            X_train=X_train,
-            X_test=X_test,
-            perm_result=perm_result,
-            interaction_features=interaction_features,
-            file_prefix=file_prefix,
-            save_prefix=save_prefix,
-            cat_mappings=cat_mappings,
-        )
-
-        return {
+        # Store results for later use
+        self.analysis_results = {
             'metrics': self.metrics,
-            'feature_importance': pd.Series(
-                np.abs(shap_values).mean(0),
-                index=self.feature_names
-            ).sort_values(ascending=False),
+            'feature_importance': feature_importance,
             'cat_mappings': cat_mappings,
+            'model': self.model,
+            'explainer': self.explainer,
+            'shap_values': self.shap_values,
+            'perm_result': perm_result,
+            'X_train': X_train,
+            'X_test': X_test,
+            'y_train': y_train,
+            'y_test': y_test,
+            'feature_names': self.feature_names,
+            'interaction_features': interaction_features,
+            'file_prefix': file_prefix,
+            'save_prefix': save_prefix
         }
-    
+
+        return self.analysis_results
+
+    def save_results(self, save_dir: Path, file_prefix: str = ''):
+        """
+        Save analysis results, including the analyzer object and figures.
+        
+        Args:
+            save_dir: Directory to save results
+            file_prefix: Prefix for saved files
+        """
+        # Create save directory
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save analyzer object
+        analyzer_path = save_dir / f'{file_prefix}_analyzer.pkl'
+        joblib.dump(self, analyzer_path)
+        
+        # Save analysis results
+        results_path = save_dir / f'{file_prefix}_results.pkl'
+        joblib.dump(self.analysis_results, results_path)
+        
+        # Save figures
+        figures_dir = save_dir / 'figures'
+        figures_dir.mkdir(exist_ok=True)
+        
+        # Save feature importance plot
+        if hasattr(self, 'analysis_results') and 'feature_importance' in self.analysis_results:
+            plt.figure(figsize=(10, 6))
+            self._plot_feature_importance(
+                self.analysis_results['X_train'],
+                self.analysis_results['X_test'],
+                self.analysis_results['shap_values'],
+                self.analysis_results['perm_result'],
+                figures_dir,
+                file_prefix
+            )
+            plt.close()
+        
+        print(f"Saved analysis results to {save_dir}")
+
+    @classmethod
+    def load_results(cls, load_dir: Path, file_prefix: str = '') -> Tuple['BehavioralAnalysisGBM', Dict]:
+        """
+        Load previously saved analysis results.
+        
+        Args:
+            load_dir: Directory containing saved results
+            file_prefix: Prefix of saved files
+            
+        Returns:
+            Tuple of (analyzer object, analysis results)
+        """
+        load_dir = Path(load_dir)
+        
+        # Load analyzer object
+        analyzer_path = load_dir / f'{file_prefix}_analyzer.pkl'
+        if not analyzer_path.exists():
+            raise FileNotFoundError(f"No saved analyzer found at {analyzer_path}")
+        analyzer = joblib.load(analyzer_path)
+        
+        # Load analysis results
+        results_path = load_dir / f'{file_prefix}_results.pkl'
+        if not results_path.exists():
+            raise FileNotFoundError(f"No saved results found at {results_path}")
+        results = joblib.load(results_path)
+        
+        # Restore results to analyzer
+        analyzer.analysis_results = results
+        
+        print(f"Loaded analysis results from {load_dir}")
+        return analyzer, results
 
 def main():
     df = pd.read_csv('/Users/lebert/home/code/context/explain_behaviour/data/expert_table.csv')
@@ -462,6 +586,8 @@ def main():
     print("\nTop Features:")
     print(results['feature_importance'].head())
 
+    # Generate visualizations
+    analyzer.plot_results()
 
 # # Initialize the analyzer
 # analyzer = BehavioralAnalysis(save_path=Path('results'))
