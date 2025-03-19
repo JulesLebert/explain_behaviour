@@ -19,6 +19,8 @@ import joblib
 
 import explain_behaviour.helpers.plotting as plottings
 
+EXTS = ['png', 'pdf', 'svg']
+
 class BehavioralAnalysisGBM:
     """
     A class for analyzing behavioral data using LightGBM classification.
@@ -70,7 +72,7 @@ class BehavioralAnalysisGBM:
             X, y,
             test_size=test_size,
             random_state=self.random_state,
-            stratify=y
+            stratify=y if self.mode == 'classification' else None,
         )
 
         self.X = X
@@ -259,7 +261,7 @@ class BehavioralAnalysisGBM:
         )
         fig = plt.gcf()
         fig.tight_layout()
-        for ext in ['png', 'pdf']:
+        for ext in EXTS:
             fig.savefig(save_dir / f'{file_prefix}_shap_waterfall.{ext}', 
                        dpi=300, bbox_inches='tight')
 
@@ -282,7 +284,7 @@ class BehavioralAnalysisGBM:
         metric_value = self.metrics['r2'] if self.mode == 'regression' else self.metrics['balanced_accuracy']
         fig.suptitle(f'Test {metric_name}: {metric_value:.3f}')
         fig.tight_layout()
-        for ext in ['png', 'pdf']:
+        for ext in EXTS:
             fig.savefig(save_dir / f'{file_prefix}_feature_importance.{ext}', 
                        dpi=300, bbox_inches='tight')
 
@@ -307,7 +309,7 @@ class BehavioralAnalysisGBM:
             )       
             sns.despine(fig, trim=True)  
             fig.tight_layout()
-            for ext in ['png', 'pdf']:
+            for ext in EXTS:
                 fig.savefig(save_dir / f'{file_prefix}_{feature_a}_{feature_b}_shap_interaction.{ext}', 
                            dpi=300)
 
@@ -488,7 +490,7 @@ class BehavioralAnalysisGBM:
             'feature_names': self.feature_names,
             'interaction_features': interaction_features,
             'file_prefix': file_prefix,
-            'save_prefix': save_prefix
+            'save_prefix': save_prefix,
         }
 
         return self.analysis_results
@@ -513,22 +515,22 @@ class BehavioralAnalysisGBM:
         results_path = save_dir / f'{file_prefix}_results.pkl'
         joblib.dump(self.analysis_results, results_path)
         
-        # Save figures
-        figures_dir = save_dir / 'figures'
-        figures_dir.mkdir(exist_ok=True)
+        # # Save figures
+        # figures_dir = save_dir / 'figures'
+        # figures_dir.mkdir(exist_ok=True)
         
-        # Save feature importance plot
-        if hasattr(self, 'analysis_results') and 'feature_importance' in self.analysis_results:
-            plt.figure(figsize=(10, 6))
-            self._plot_feature_importance(
-                self.analysis_results['X_train'],
-                self.analysis_results['X_test'],
-                self.analysis_results['shap_values'],
-                self.analysis_results['perm_result'],
-                figures_dir,
-                file_prefix
-            )
-            plt.close()
+        # # Save feature importance plot
+        # if hasattr(self, 'analysis_results') and 'feature_importance' in self.analysis_results:
+        #     plt.figure(figsize=(10, 6))
+        #     self._plot_feature_importance(
+        #         self.analysis_results['X_train'],
+        #         self.analysis_results['X_test'],
+        #         self.analysis_results['shap_values'],
+        #         self.analysis_results['perm_result'],
+        #         figures_dir,
+        #         file_prefix
+        #     )
+        #     plt.close()
         
         print(f"Saved analysis results to {save_dir}")
 

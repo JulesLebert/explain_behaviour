@@ -20,6 +20,7 @@ def create_trial_features(df):
     features['session'] = df['session_name']
     features['trial_type'] = df['trial_type']
     features['lick_flag'] = df['lick_flag']
+    features['trial_outcome'] = df['trial_outcome']
     
     # Previous trial context (shift by 1, fill first trial with -1)
     features['prev_context'] = df.groupby('session_name')['context'].shift(1).fillna(-1)
@@ -85,6 +86,9 @@ def create_trial_features(df):
     
     # Whether mouse received water in previous trial
     features['prev_trial_water'] = hit_mask.groupby(df['session_name']).shift(1).fillna(False)
+
+    # Reaction time
+    features['reaction_time'] = df['lick_time'] - df['start_time']
     
     return features
 
@@ -122,7 +126,7 @@ def label_trial_outcomes(df):
     
     return df
 
-def prepare_whisker_features(df):
+def prepare_behavior_features(df):
     """
     Prepare features specifically for whisker trial analysis.
     
@@ -137,11 +141,8 @@ def prepare_whisker_features(df):
     
     # Create features
     features_df = create_trial_features(df)
-    
-    # Filter for whisker trials
-    whisker_df = features_df.loc[features_df.trial_type == 'whisker_trial']
-    
-    df_use = whisker_df
+        
+    df_use = features_df
     # # Select features for analysis
     # df_use = whisker_df[[
     #     'context',

@@ -631,6 +631,13 @@ def plot_interaction_single(
         'alpha' : 0.5,
         'size' : 4,
     }
+
+    plots_kwargs_point = {
+        'linewidth' : 0.1,
+        'alpha' : 0.8,
+        'markersize' : 10,
+    }
+
     # Obtain the indices of the features to plot
     feature_a_index = X.columns.get_loc(feature_a)
     feature_b_index = X.columns.get_loc(feature_b)
@@ -644,7 +651,18 @@ def plot_interaction_single(
             palette=cmap,
             ax=ax,
             legend=False,
+            dodge=True,
             **plots_kwargs_strip,      
+        )
+        sns.pointplot(
+            x=X_disp[feature_a],
+            y=shap_values[:, feature_a_index],
+            hue=X_disp[feature_b],
+            palette=cmap,
+            ax=ax,
+            legend=False,
+            dodge=True,
+            **plots_kwargs_point,      
         )
 
         ax=axes[1]
