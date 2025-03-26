@@ -18,7 +18,7 @@ whisker_features:
   - prev_trial_correct
   # - trial_number
   # - context_block_index
-  - trial_in_block
+  # - trial_in_block
   - whisker_trial_in_block
   - prev_trial_water
   - last_stimulus_type
@@ -31,7 +31,7 @@ feature_labels:
   - Mouse ID
   - Cumulative water
   - Previous trial correct
-  - Trial in block
+  # - Trial in block
   - Whisker trial in block
   - Previous trial water
   - Last stimulus type

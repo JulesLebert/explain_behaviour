@@ -461,8 +461,25 @@ class BehavioralAnalysisGBM:
         # Calculate feature importance
         X = pd.concat([X_train, X_test])
 
-        self.explainer = shap.TreeExplainer(self.model)
-        shap_values = self.explainer.shap_values(X)
+        # Use a subset of training data as background
+        background_data = X_train.sample(min(100, len(X_train)), random_state=self.random_state)
+        print(f"Starting SHAP explainer")
+        # Create explainer with model output set to 'probability' to avoid TreeEnsemble values error
+        self.explainer = shap.TreeExplainer(
+            self.model,
+            data=background_data,
+            feature_perturbation='interventional',
+            model_output='probability' if self.mode == 'classification' else 'raw'
+        )
+        
+        # Get SHAP values for all data points
+        if self.mode == 'classification':
+            # For classification, get class probabilities
+            shap_values = self.explainer.shap_values(X)[1] # Get values for positive class
+        else:
+            # For regression, get raw predictions
+            shap_values = self.explainer.shap_values(X)
+        print(f"SHAP explainer completed")
         self.shap_values = shap_values
 
         # Calculate feature importance
