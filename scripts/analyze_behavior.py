@@ -23,6 +23,10 @@ def plot_interaction_only(
     X_disp = pd.concat([analyzer.analysis_results['X_train'], analyzer.analysis_results['X_test']])
     shap_values = analyzer.analysis_results['shap_values']
 
+    # Ensure shap_values is 2D
+    if len(shap_values.shape) == 1:
+        shap_values = shap_values.reshape(-1, 1)
+
     feature_a, feature_b = interaction_features
     feature_a_index = X_disp.columns.get_loc(feature_a)
     feature_b_index = X_disp.columns.get_loc(feature_b)
@@ -66,8 +70,6 @@ def plot_interaction_only(
     )
     ax.set_xlabel(feature_a)
     ax.set_ylabel(f'SHAP value of \n{feature_a.lower()}')
-    # # Update legend labels
-    # handles = ax.get_legend().get_patches()
     ax.legend(['R-', 'R+'])
     sns.despine(fig, trim=True)
     fig.tight_layout()
@@ -78,13 +80,9 @@ def plot_interaction_only(
 def main():
     # Configuration
     config_name = 'whisker_classification'  # Change this to use different config files
-    load_dir = None # Set to a directory name to load previous results, e.g., 'run_20250318_171524'
-    
-    # Load configuration
-    config_path = Path(__file__).parent.parent / 'configs' / 'analysis' / f'{config_name}.yaml'
-    config = load_config(config_path)
-    
-    # Set up results directory
+    # load_dir = 'run_20250326_173235' # Set to a directory name to load previous results, e.g., 'run_20250318_171524'
+    load_dir = None
+
     results_dir = Path(__file__).parent.parent / 'results' / config_name
     results_dir.mkdir(parents=True, exist_ok=True)
     
@@ -92,9 +90,17 @@ def main():
         # Load previously saved results
         run_name = load_dir
         load_dir = results_dir / load_dir
+        config_path = load_dir / 'config.yaml'
+        config = load_config(config_path)
         analyzer, results = BehavioralAnalysisGBM.load_results(load_dir)
         print("\nLoaded Analysis Results:")
     else:
+        # Load configuration
+        config_path = Path(__file__).parent.parent / 'configs' / 'analysis' / f'{config_name}.yaml'
+        config = load_config(config_path)
+        
+        # Set up results directory
+
         run_name = f"run_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}"
         # Load data and run analysis
         df_path = Path(__file__).parent.parent / 'data' / 'expert_data.csv'
@@ -153,12 +159,13 @@ def main():
         print(results['feature_importance'].head())
 
     # Plot interaction only results
-    fig, ax = plot_interaction_only(
-        analyzer,
-        interaction_features=config['interaction_features'][1],
-        save_path=results_dir / run_name / 'analysis' / 'interaction_whisker_trial_context.png'
-    )
-    fig.show()
+    for interaction_features in config['interaction_features']:
+        fig, ax = plot_interaction_only(
+            analyzer,
+            interaction_features=interaction_features,
+            save_path=results_dir / run_name / 'analysis' / f'interaction_{interaction_features}'
+        )
+        fig.show()
 
 if __name__ == '__main__':
     main() 

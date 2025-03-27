@@ -5,9 +5,9 @@ mode: classification
 
 # Analysis parameters
 analysis_params:
-  optimize: false  # Whether to run hyperparameter optimization
+  optimize: true  # Whether to run hyperparameter optimization
   use_smote: false  # Whether to use SMOTE for handling class imbalance
-  n_trials: 500  # Number of optimization trials
+  n_trials: 200  # Number of optimization trials
   file_prefix: whisker_all_contexts
 
 # Feature columns for whisker analysis
@@ -18,7 +18,7 @@ whisker_features:
   - prev_trial_correct
   # - trial_number
   # - context_block_index
-  # - trial_in_block
+  - trial_in_block
   - whisker_trial_in_block
   - prev_trial_water
   - last_stimulus_type
@@ -31,7 +31,7 @@ feature_labels:
   - Mouse ID
   - Cumulative water
   - Previous trial correct
-  # - Trial in block
+  - Trial in block
   - Whisker trial in block
   - Previous trial water
   - Last stimulus type
@@ -53,7 +53,10 @@ categorical_columns:
 interaction_features:
   # - [context, whisker_trial_in_block]
   # - [whisker_trial_in_block, context]
-  - [Context, Whisker trial in block]
+  # - [Context, Whisker trial in block]
   - [Whisker trial in block, Context]
+  - [Trial in block, Context]
+  - [Trial in block, Whisker trial in block]
+  - [Whisker trial in block, Trial in block]
 
 

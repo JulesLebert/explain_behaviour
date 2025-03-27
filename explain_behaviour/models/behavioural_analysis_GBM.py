@@ -1,7 +1,7 @@
 from pathlib import Path
 import pandas as pd
 import numpy as np
-import lightgbm as lgb
+import xgboost as xgb
 import shap
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -23,7 +23,7 @@ EXTS = ['png', 'pdf', 'svg']
 
 class BehavioralAnalysisGBM:
     """
-    A class for analyzing behavioral data using LightGBM classification.
+    A class for analyzing behavioral data using XGBoost classification.
     """
     def __init__(
         self,
@@ -127,7 +127,7 @@ class BehavioralAnalysisGBM:
         use_smote: bool = False
     ) -> Dict:
         """
-        Train the LightGBM model and return performance metrics.
+        Train the XGBoost model and return performance metrics.
         """
         if use_smote and self.mode == 'regression':
             raise ValueError("SMOTE is not supported for regression tasks")
@@ -141,29 +141,33 @@ class BehavioralAnalysisGBM:
         default_params = {
             'random_state': self.random_state,
             'n_jobs': -1,
-            'verbosity': -1
+            'verbosity': 0
         }
         
         if self.mode == 'classification':
-            default_params['objective'] = 'binary'
-            model_class = lgb.LGBMClassifier
-            eval_metric = "binary_logloss"
+            default_params['objective'] = 'binary:logistic'
+            model_class = xgb.XGBClassifier
+            default_params['eval_metric'] = 'logloss'
         else:
-            default_params['objective'] = 'regression'
-            model_class = lgb.LGBMRegressor
-            eval_metric = "mse"
+            default_params['objective'] = 'reg:squarederror'
+            model_class = xgb.XGBRegressor
+            default_params['eval_metric'] = 'rmse'
         
         if params:
             default_params.update(params)
 
+        # Add early stopping parameters
+        default_params['early_stopping_rounds'] = 100
+
         self.model = model_class(**default_params)
         
+        # Create evaluation set
+        eval_set = [(X_test, y_test)]
         self.model.fit(
             X_train_smote,
             y_train_smote,
-            eval_set=[(X_test, y_test)],
-            eval_metric=eval_metric,
-            callbacks=[lgb.early_stopping(stopping_rounds=300)]
+            eval_set=eval_set,
+            verbose=False
         )
 
         # Calculate metrics based on mode
@@ -245,10 +249,10 @@ class BehavioralAnalysisGBM:
             X, X_train, X_test, shap_values, perm_result,
             save_dir, file_prefix
         )
-        self._plot_interactions(
-            X, shap_values, interaction_features,
-            save_dir, file_prefix, cat_mappings
-        )
+        # self._plot_interactions(
+        #     X, shap_values, interaction_features,
+        #     save_dir, file_prefix, cat_mappings
+        # )
         
 
     def _plot_shap_waterfall(self, X, save_dir, file_prefix):
@@ -329,40 +333,44 @@ class BehavioralAnalysisGBM:
             param_grid = {
                 "subsample": trial.suggest_float("subsample", 0.1, 1),
                 "learning_rate": trial.suggest_float("learning_rate", 0.0001, 0.5, log=True),
-                "num_leaves": trial.suggest_int("num_leaves", 20, 500),
-                "max_depth": trial.suggest_int("max_depth", -1, 20),
-                "min_child_samples": trial.suggest_int("min_child_samples", 1, 200),
+                "max_depth": trial.suggest_int("max_depth", 3, 20),
+                "min_child_weight": trial.suggest_int("min_child_weight", 1, 200),
                 "reg_alpha": trial.suggest_float("reg_alpha", 0.001, 10, log=True),
                 "reg_lambda": trial.suggest_float("reg_lambda", 0.001, 10, log=True),
-                "min_split_gain": trial.suggest_float("min_split_gain", 0, 20),
-                "bagging_freq": trial.suggest_int("bagging_freq", 1, 20),
-                "feature_fraction": trial.suggest_float("feature_fraction", 0.5, 1),
-                "min_child_weight": trial.suggest_float("min_child_weight", 0.001, 300, log=True),
-                "max_bin": trial.suggest_int("max_bin", 100, 1000),
-                "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 20, 600),
-                "min_sum_hessian_in_leaf": trial.suggest_float("min_sum_hessian_in_leaf", 0.001, 50, log=True),
+                "gamma": trial.suggest_float("gamma", 0, 20),
+                "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 1),
+                "colsample_bylevel": trial.suggest_float("colsample_bylevel", 0.5, 1),
+                "colsample_bynode": trial.suggest_float("colsample_bynode", 0.5, 1),
                 "n_estimators": trial.suggest_int("n_estimators", 100, 1000),
             }
 
             if self.mode == 'classification':
                 param_grid["scale_pos_weight"] = trial.suggest_float("scale_pos_weight", 1, 10)
+                param_grid["eval_metric"] = "logloss"
+            else:
+                param_grid["eval_metric"] = "rmse"
 
-            model = lgb.LGBMClassifier(**param_grid) if self.mode == 'classification' else lgb.LGBMRegressor(**param_grid)
-            model.set_params(random_state=self.random_state, verbosity=-1)
+            # Add early stopping parameter
+            param_grid["early_stopping_rounds"] = 100
 
+            model = xgb.XGBClassifier(**param_grid) if self.mode == 'classification' else xgb.XGBRegressor(**param_grid)
+            model.set_params(random_state=self.random_state, verbosity=0)
+
+            # Create evaluation set
+            eval_set = [(X_valid, y_valid)]
+            
             model.fit(
                 X_train,
                 y_train,
-                eval_set=[(X_valid, y_valid)],
-                eval_metric="binary_logloss" if self.mode == 'classification' else "mse",
-                callbacks=[lgb.early_stopping(stopping_rounds=100)],
+                eval_set=eval_set,
+                verbose=False
             )
 
             preds = model.predict_proba(X_valid)[:, 1] if self.mode == 'classification' else model.predict(X_valid)
             return log_loss(y_valid, preds) if self.mode == 'classification' else mean_squared_error(y_valid, preds)
 
         # Create study
-        study = optuna.create_study(direction="minimize", study_name="LGBM " + self.mode.capitalize())
+        study = optuna.create_study(direction="minimize", study_name="XGBoost " + self.mode.capitalize())
 
         # Split data for optimization
         X_train_opt, X_valid, y_train_opt, y_valid = train_test_split(
@@ -464,21 +472,32 @@ class BehavioralAnalysisGBM:
         # Use a subset of training data as background
         background_data = X_train.sample(min(100, len(X_train)), random_state=self.random_state)
         print(f"Starting SHAP explainer")
-        # Create explainer with model output set to 'probability' to avoid TreeEnsemble values error
+        
+        # Ensure all data is float64
+        background_data = background_data.astype(float)
+        X = X.astype(float)
+        
+        # Create explainer with model output set to 'raw' for both classification and regression
         self.explainer = shap.TreeExplainer(
             self.model,
             data=background_data,
             feature_perturbation='interventional',
-            model_output='probability' if self.mode == 'classification' else 'raw'
+            model_output='raw'  # Always use 'raw' for both classification and regression
         )
         
         # Get SHAP values for all data points
         if self.mode == 'classification':
             # For classification, get class probabilities
-            shap_values = self.explainer.shap_values(X)[1] # Get values for positive class
+            shap_values = self.explainer.shap_values(X)#[1] # Get values for positive class
+            # Ensure shap_values is 2D with correct number of features
+            if len(shap_values.shape) == 1:
+                shap_values = shap_values.reshape(-1, X.shape[1])
         else:
             # For regression, get raw predictions
             shap_values = self.explainer.shap_values(X)
+            # Ensure shap_values is 2D with correct number of features
+            if len(shap_values.shape) == 1:
+                shap_values = shap_values.reshape(-1, X.shape[1])
         print(f"SHAP explainer completed")
         self.shap_values = shap_values
 
