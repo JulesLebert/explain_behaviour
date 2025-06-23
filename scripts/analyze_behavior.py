@@ -1,5 +1,8 @@
 from pathlib import Path
 import pandas as pd
+import numpy as np
+rng = np.random.default_rng(2) # For reproducibility
+
 import yaml
 from explain_behaviour.models.behavioural_analysis_GBM import BehavioralAnalysisGBM
 from explain_behaviour.preprocessing.trial_features import prepare_behavior_features
@@ -14,10 +17,73 @@ def load_config(config_path: Path) -> dict:
     with open(config_path, 'r') as f:
         return yaml.safe_load(f)
 
+def plot_interaction_per_context(
+        analyzer,
+        interaction_features,
+        save_path,
+        type_a='discrete',
+    ):
+        """Plot interaction only results."""
+        X_disp = pd.concat([analyzer.analysis_results['X_train'], analyzer.analysis_results['X_test']])
+        shap_values = analyzer.analysis_results['shap_values']
+        X_disp = X_disp.reset_index(drop=True)
+
+        # Ensure shap_values is 2D
+        if len(shap_values.shape) == 1:
+            shap_values = shap_values.reshape(-1, 1)
+
+        feature_a, feature_b = interaction_features
+        feature_a_index = X_disp.columns.get_loc(feature_a)
+        feature_b_index = X_disp.columns.get_loc(feature_b)
+
+        # Create custom palette mapping 0 to dark magenta and 1 to green
+        custom_palette = {0: 'darkmagenta', 1: 'green'}  # Dark magenta and green
+        
+        plots_kwargs_strip = {
+            'edgecolor' : None,
+            'linewidth' : 0.1,
+            'alpha' : 0.3,
+            'size' : 4,
+        }
+
+        plots_kwargs_point = {
+            'linewidth' : 0.5,
+            'alpha' : 0.8,
+            'markersize' : 10,
+        }
+
+        fig, axes = plt.subplots(2,1, figsize=(6,8), dpi=300)
+        if type_a == 'discrete':
+            for i, context in enumerate([0,1]):
+                X_context = X_disp.loc[X_disp['Context'] == context]
+                sns.pointplot(
+                    x=X_context[feature_a],
+                    y=shap_values[X_context.index, feature_a_index],
+                    hue=X_context[feature_b],
+                    ax=axes[i]
+                )
+                axes[i].set_title("R+" if context==1 else "R-")
+        elif type_a == 'continuous':
+            for i, context in enumerate([0,1]):
+                X_context = X_disp.loc[X_disp['Context'] == context]
+                sns.scatterplot(
+                    x=X_context[feature_a],
+                    y=shap_values[X_context.index, feature_a_index],
+                    hue=X_context[feature_b],
+                    ax=axes[i]
+                )
+                axes[i].set_title("R+" if context==1 else "R-")
+
+        
+        sns.despine(fig, trim=True)
+        fig.tight_layout()
+
+
 def plot_interaction_only(
     analyzer,
     interaction_features,
     save_path,
+    type_a='discrete',
 ):
     """Plot interaction only results."""
     X_disp = pd.concat([analyzer.analysis_results['X_train'], analyzer.analysis_results['X_test']])
@@ -48,29 +114,48 @@ def plot_interaction_only(
         'markersize' : 10,
     }
 
-    sns.stripplot(
-        x=X_disp[feature_a],
-        y=shap_values[:, feature_a_index],
-        hue=X_disp[feature_b],
-        palette=custom_palette,
-        ax=ax,
-        legend=True,
-        dodge=True,
-        **plots_kwargs_strip,
-    )
-    sns.pointplot(
-        x=X_disp[feature_a],
-        y=shap_values[:, feature_a_index],
-        hue=X_disp[feature_b],
-        palette=custom_palette,
-        legend=False,
-        dodge=True,
-        ax=ax,
-        **plots_kwargs_point,
-    )
+    if type_a == 'discrete':
+        sns.stripplot(
+            x=X_disp[feature_a],
+            y=shap_values[:, feature_a_index],
+            hue=X_disp[feature_b],
+            palette=custom_palette,
+            ax=ax,
+            legend=True,
+            dodge=True,
+            **plots_kwargs_strip,
+        )
+        sns.pointplot(
+            x=X_disp[feature_a],
+            y=shap_values[:, feature_a_index],
+            hue=X_disp[feature_b],
+            palette=custom_palette,
+            legend=False,
+            dodge=True,
+            ax=ax,
+            **plots_kwargs_point,
+        )
+
+        ax.legend(labels=['R-', 'R+'])
+    elif type_a == 'continuous':
+        # Create scatter plot
+        sns.scatterplot(
+            x=X_disp[feature_a],
+            y=shap_values[:, feature_a_index],
+            hue=X_disp[feature_b],
+            palette=custom_palette,
+            ax=ax,
+            legend=False  # Don't create automatic legend
+        )
+        
+        # Create custom legend with correct colors
+        handles = [plt.scatter([], [], c=color, label=label) 
+                  for label, color in zip(['R-', 'R+'], custom_palette.values())]
+        ax.legend(handles=handles)
+    else:
+        raise NotImplementedError
     ax.set_xlabel(feature_a)
     ax.set_ylabel(f'SHAP value of \n{feature_a.lower()}')
-    ax.legend(['R-', 'R+'])
     sns.despine(fig, trim=True)
     fig.tight_layout()
     for ext in EXTS:
@@ -80,7 +165,7 @@ def plot_interaction_only(
 def main():
     # Configuration
     config_name = 'whisker_classification'  # Change this to use different config files
-    # load_dir = 'run_20250326_173235' # Set to a directory name to load previous results, e.g., 'run_20250318_171524'
+    # load_dir = 'run_20250619_112522' # Set to a directory name to load previous results, e.g., 'run_20250318_171524'
     load_dir = None
 
     results_dir = Path(__file__).parent.parent / 'results' / config_name
@@ -93,6 +178,7 @@ def main():
         config_path = load_dir / 'config.yaml'
         config = load_config(config_path)
         analyzer, results = BehavioralAnalysisGBM.load_results(load_dir)
+        analyzer.plot_results()
         print("\nLoaded Analysis Results:")
     else:
         # Load configuration
@@ -107,7 +193,7 @@ def main():
         df = pd.read_csv(df_path)
         
         # Prepare features for analysis
-        df_use = prepare_behavior_features(df)
+        df_use = prepare_behavior_features(df, config)
 
         if config['mode'] == 'classification':
                 # Filter for whisker trials
@@ -122,6 +208,11 @@ def main():
         df_use = df_use[config['whisker_features']]
         df_use = df_use.rename(columns=dict(zip(df_use.columns, config['feature_labels'])))
         
+        if config['leave_out_one_session']:
+            test_session = rng.choice(df_use['Session ID'].unique())
+            df_test = df_use[df_use['Session ID'] == test_session]
+            df_use = df_use[df_use['Session ID'] != test_session]
+
         # Initialize analyzer
         analyzer = BehavioralAnalysisGBM(
             save_path=results_dir / run_name,
@@ -133,9 +224,9 @@ def main():
             df=df_use,
             outcome_col=config['outcome_column'],
             categorical_cols=config['categorical_columns'],
-            interaction_features=config['interaction_features'],
+            interaction_features=config['interaction_features_discrete'],
             **config['analysis_params']
-        )
+        ) 
         
         # Generate visualizations
         analyzer.plot_results()
@@ -143,6 +234,7 @@ def main():
         # if save_results:
             # Save results
         save_dir = results_dir / run_name
+        df_test.to_csv(save_dir / "df_test.csv", index=False)
         analyzer.save_results(save_dir)
         # Save config as YAML
         config_file = save_dir / 'config.yaml'
@@ -159,13 +251,35 @@ def main():
         print(results['feature_importance'].head())
 
     # Plot interaction only results
-    for interaction_features in config['interaction_features']:
-        fig, ax = plot_interaction_only(
-            analyzer,
-            interaction_features=interaction_features,
-            save_path=results_dir / run_name / 'analysis' / f'interaction_{interaction_features}'
-        )
-        fig.show()
+    # for interaction_features in config['interaction_features_discrete']:
+    #     fig, ax = plot_interaction_only(
+    #         analyzer,
+    #         interaction_features=interaction_features,
+    #         save_path=results_dir / run_name / 'analysis' / f'interaction_{interaction_features}',
+    #         type_a='discrete',
+    #     )
+    #     fig.show()
+
+    # # Plot interaction only results
+    # for interaction_features in config['interaction_features_continuous']:
+    #     fig, ax = plot_interaction_only(
+    #         analyzer,
+    #         interaction_features=interaction_features,
+    #         save_path=results_dir / run_name / 'analysis' / f'interaction_{interaction_features}',
+    #         type_a='continuous',
+    #     )
+    #     fig.show()
+
+    # interaction_features = ['Whisker trial in block', 'Previous whisker rewarded']
+    # fig, ax = plot_interaction_per_context(
+    #     analyzer,
+    #     interaction_features=interaction_features,
+    #     save_path=results_dir / run_name / 'analysis' / f'interaction_{interaction_features}',
+    #     type_a='discrete',
+    # )
+    
+    # interaction_features = ['Time since transition', 'Previous whisker rewarded']
+
 
 if __name__ == '__main__':
     main() 

@@ -1,7 +1,8 @@
+from pathlib import Path
 import pandas as pd
 import numpy as np
 
-def create_trial_features(df):
+def create_trial_features(df, config=None):
     """
     Create a feature-rich DataFrame for model training based on trial data.
     
@@ -13,7 +14,11 @@ def create_trial_features(df):
     """
     # Create new DataFrame with required features
     features = pd.DataFrame()
-    
+
+    if "BaselineMotionEnergy" in config['whisker_features']:
+        df = add_baseline_motion_energy(df)
+        features['BaselineMotionEnergy'] = df['BaselineMotionEnergy']
+        features = features.loc[features.BaselineMotionEnergy < 100000]
     # Basic information
     features['context'] = df['context']
     features['subject'] = df['subject']
@@ -21,6 +26,7 @@ def create_trial_features(df):
     features['trial_type'] = df['trial_type']
     features['lick_flag'] = df['lick_flag']
     features['trial_outcome'] = df['trial_outcome']
+    features['time_in_context'] = df['time_in_context']
     
     # Previous trial context (shift by 1, fill first trial with -1)
     features['prev_context'] = df.groupby('session_name')['context'].shift(1).fillna(-1)
@@ -92,6 +98,35 @@ def create_trial_features(df):
     
     return features
 
+def add_baseline_motion_energy(
+        df, 
+        baseline_energy_path='/Volumes/Petersen-Lab/z_LSENS/Share/Pol_Bech/Bech_Dard et al 2025/Figure_data/facemap_plots/Facemap movement analysis_2025_06_16.19-22-40/baseline_energy.csv',
+        ):
+    baseline_energy_path = Path(baseline_energy_path)
+    df_energy = pd.read_csv(baseline_energy_path)
+
+    df['id'] = df.groupby('session_name').cumcount()
+
+    df_merged = pd.merge(
+        df,
+        df_energy,
+        left_on=['session_name', 'id'],
+        right_on=['session_id', 'id'],
+        how='inner',
+        suffixes=('', '_y')  # Keep original column names for left df, add _y suffix for right df
+    )
+    
+    # Drop the duplicate columns (those ending with _y)
+    columns_to_drop = [col for col in df_merged.columns if col.endswith('_y')]
+    df_merged = df_merged.drop(columns=columns_to_drop)
+    
+    # Drop the session_id column since we already have session_name
+    if 'session_id' in df_merged.columns:
+        df_merged = df_merged.drop(columns=['session_id'])
+    
+
+    return df_merged
+
 def label_trial_outcomes(df):
     """
     Label trial outcomes based on trial type, context, and response.
@@ -126,7 +161,7 @@ def label_trial_outcomes(df):
     
     return df
 
-def prepare_behavior_features(df):
+def prepare_behavior_features(df, config = None):
     """
     Prepare features specifically for whisker trial analysis.
     
@@ -140,7 +175,7 @@ def prepare_behavior_features(df):
     df = label_trial_outcomes(df)
     
     # Create features
-    features_df = create_trial_features(df)
+    features_df = create_trial_features(df, config)
         
     df_use = features_df
     # # Select features for analysis

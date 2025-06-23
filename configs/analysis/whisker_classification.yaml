@@ -2,12 +2,14 @@
 # This configuration file contains parameters for whisker-specific behavioral analysis
 
 mode: classification
+leave_out_one_session: true  # Leave out one session for testing
+
 
 # Analysis parameters
 analysis_params:
   optimize: true  # Whether to run hyperparameter optimization
   use_smote: false  # Whether to use SMOTE for handling class imbalance
-  n_trials: 200  # Number of optimization trials
+  n_trials: 400  # Number of optimization trials
   file_prefix: whisker_all_contexts
 
 # Feature columns for whisker analysis
@@ -18,12 +20,15 @@ whisker_features:
   - prev_trial_correct
   # - trial_number
   # - context_block_index
-  - trial_in_block
+  # - trial_in_block
   - whisker_trial_in_block
+  # - time_in_context
   - prev_trial_water
   - last_stimulus_type
   - prev_whisker_rewarded
   - time_since_last_stimulus
+  - BaselineMotionEnergy
+  - session
   - lick_flag 
 
 feature_labels:
@@ -31,12 +36,15 @@ feature_labels:
   - Mouse ID
   - Cumulative water
   - Previous trial correct
-  - Trial in block
+  # - Trial in block
   - Whisker trial in block
+  # - Time since transition
   - Previous trial water
   - Last stimulus type
   - Previous whisker rewarded
   - Time since last stimulus
+  - Baseline motion energy
+  - Session ID
   - Lick flag
 
 outcome_column: Lick flag
@@ -48,15 +56,22 @@ categorical_columns:
   - Previous trial correct
   - Previous whisker rewarded
   - Last stimulus type
+  - Session ID
 
 # Feature interactions to analyze
-interaction_features:
+interaction_features_discrete:
   # - [context, whisker_trial_in_block]
   # - [whisker_trial_in_block, context]
   # - [Context, Whisker trial in block]
   - [Whisker trial in block, Context]
-  - [Trial in block, Context]
-  - [Trial in block, Whisker trial in block]
-  - [Whisker trial in block, Trial in block]
+  # - [Context, Baseline motion energy]
+  # - [Trial in block, Context]
+  # - [Time since transition, Context]
+  # - ['Previous trial water, Context']
+  # - ['Previous trial water, Trial in block']
+  # - [Previous trial water, Time since transition]
+  # - [Trial in block, Whisker trial in block]
+  # - [Whisker trial in block, Trial in block]
 
-
+# interaction_features_continuous:
+#   - [Time since transition, Context]

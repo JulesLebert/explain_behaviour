@@ -249,10 +249,10 @@ class BehavioralAnalysisGBM:
             X, X_train, X_test, shap_values, perm_result,
             save_dir, file_prefix
         )
-        # self._plot_interactions(
-        #     X, shap_values, interaction_features,
-        #     save_dir, file_prefix, cat_mappings
-        # )
+        self._plot_interactions(
+            X, shap_values, interaction_features,
+            save_dir, file_prefix, cat_mappings
+        )
         
 
     def _plot_shap_waterfall(self, X, save_dir, file_prefix):
@@ -265,15 +265,40 @@ class BehavioralAnalysisGBM:
         )
         fig = plt.gcf()
         fig.tight_layout()
+        plt.rcParams['svg.fonttype'] = 'none'
         for ext in EXTS:
             fig.savefig(save_dir / f'{file_prefix}_shap_waterfall.{ext}', 
                        dpi=300, bbox_inches='tight')
+
+    # def _plot_feature_importance(self, X, X_train, X_test, shap_values, 
+    #                            perm_result, save_dir, file_prefix):
+    #     """Plot feature importance plots."""
+    #     cmap = "flare"
+    #     fig, ax_dict = plottings.full_shap_plot(
+    #         xg_reg=self.model,
+    #         shap_values=shap_values,
+    #         X=X,
+    #         X_train=X_train,
+    #         X_test=X_test,
+    #         perm_result=perm_result,
+    #         cmapcustom=cmap,
+    #     )
+
+    #     # Set appropriate title based on mode
+    #     metric_name = 'R²' if self.mode == 'regression' else 'Balanced Accuracy'
+    #     metric_value = self.metrics['r2'] if self.mode == 'regression' else self.metrics['balanced_accuracy']
+    #     fig.suptitle(f'Test {metric_name}: {metric_value:.3f}')
+    #     fig.tight_layout()
+    #     plt.rcParams['svg.fonttype'] = 'none'
+    #     for ext in EXTS:
+    #         fig.savefig(save_dir / f'{file_prefix}_feature_importance.{ext}', 
+    #                    dpi=300, bbox_inches='tight')
 
     def _plot_feature_importance(self, X, X_train, X_test, shap_values, 
                                perm_result, save_dir, file_prefix):
         """Plot feature importance plots."""
         cmap = "flare"
-        fig, ax_dict = plottings.full_shap_plot(
+        fig_axes = plottings.shap_plots_separated(
             xg_reg=self.model,
             shap_values=shap_values,
             X=X,
@@ -283,15 +308,19 @@ class BehavioralAnalysisGBM:
             cmapcustom=cmap,
         )
 
-        # Set appropriate title based on mode
-        metric_name = 'R²' if self.mode == 'regression' else 'Balanced Accuracy'
-        metric_value = self.metrics['r2'] if self.mode == 'regression' else self.metrics['balanced_accuracy']
-        fig.suptitle(f'Test {metric_name}: {metric_value:.3f}')
-        fig.tight_layout()
-        for ext in EXTS:
-            fig.savefig(save_dir / f'{file_prefix}_feature_importance.{ext}', 
-                       dpi=300, bbox_inches='tight')
+        for fig_label, (fig, ax) in fig_axes.items():
+            if fig_label == 'summary':
+                # Set appropriate title based on mode
+                metric_name = 'R²' if self.mode == 'regression' else 'Balanced Accuracy'
+                metric_value = self.metrics['r2'] if self.mode == 'regression' else self.metrics['balanced_accuracy']
+                fig.suptitle(f'Test {metric_name}: {metric_value:.3f}')
 
+            fig.tight_layout()
+            plt.rcParams['svg.fonttype'] = 'none'
+            for ext in EXTS:
+                fig.savefig(save_dir / f'{file_prefix}_{fig_label}.{ext}', 
+                        dpi=300, bbox_inches='tight')
+            
     def _plot_interactions(self, X, shap_values, interaction_features,
                           save_dir, file_prefix, cat_mappings):
         """Plot interaction plots."""
