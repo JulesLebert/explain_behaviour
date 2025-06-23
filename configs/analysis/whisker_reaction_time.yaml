@@ -1,0 +1,63 @@
+# Whisker analysis configuration
+# This configuration file contains parameters for whisker-specific behavioral analysis
+
+mode: regression
+
+# Analysis parameters
+analysis_params:
+  optimize: true  # Whether to run hyperparameter optimization
+  use_smote: false  # Whether to use SMOTE for handling class imbalance
+  n_trials: 500  # Number of optimization trials
+  file_prefix: whisker_reaction_time
+
+# Feature columns for whisker analysis
+whisker_features:
+  - context
+  - subject
+  - cum_water
+  - prev_trial_correct
+  # - trial_number
+  # - context_block_index
+  - trial_in_block
+  - whisker_trial_in_block
+  - prev_trial_water
+  - last_stimulus_type
+  - prev_whisker_rewarded
+  - time_since_last_stimulus
+  - trial_type
+  - reaction_time
+
+feature_labels:
+  - Context
+  - Mouse ID
+  - Cumulative water
+  - Previous trial correct
+  - Trial in block
+  - Whisker trial in block
+  - Previous trial water
+  - Last stimulus type
+  - Previous whisker rewarded
+  - Time since last stimulus
+  - Stimulus type
+  - Reaction time
+
+outcome_column: Reaction time
+
+# Categorical columns for analysis
+categorical_columns:
+  - Context
+  - Mouse ID
+  - Previous trial correct
+  - Previous whisker rewarded
+  - Last stimulus type
+  - Stimulus type
+
+# Feature interactions to analyze
+interaction_features:
+  # - [context, whisker_trial_in_block]
+  # - [whisker_trial_in_block, context]
+  - [Context, Whisker trial in block]
+  - [Whisker trial in block, Context]
+  - [Stimulus type, Context]
+
+

@@ -7,7 +7,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.cm import ScalarMappable
-import lightgbm as lgb
+import xgboost as xgb
 
 import seaborn as sns
 import shap
@@ -94,11 +94,11 @@ def plot_feature_importance(
     ):
     if ax is None:
         fig, ax = plt.subplots(figsize=(15, 15))
-    lgb.plot_importance(xg_reg, ax=ax)
+    xgb.plot_importance(xg_reg, ax=ax)
     if one_ferret:
-        ax.set_title('feature importances for the LGBM Correct Release Times model for' + ferrets)
+        ax.set_title('feature importances for the XGBoost Correct Release Times model for' + ferrets)
     else:
-        ax.set_title('feature importances for the LGBM Correct Release Times model')
+        ax.set_title('feature importances for the XGBoost Correct Release Times model')
     if show_plots:
         fig.show()
 
@@ -120,6 +120,12 @@ def elbowplot_cumulative_shap(
     if ax is None:
         fig, ax = plt.subplots()
 
+    # Ensure shap_values is a 2D array
+    if isinstance(shap_values, (int, float)):
+        shap_values = np.array([[shap_values]])
+    elif len(shap_values.shape) == 1:
+        shap_values = shap_values.reshape(1, -1)
+
     feature_importances = np.abs(shap_values).sum(axis=0)
     if len(feature_importances.shape) == 2:
         feature_importances = feature_importances.mean(axis=0)
@@ -130,16 +136,14 @@ def elbowplot_cumulative_shap(
     feature_labels = X.columns[sorted_indices]
     cumulative_importances = np.cumsum(feature_importances)
 
-
     # Plot the elbow plot
     ax.plot(feature_labels, cumulative_importances, marker='o', color=color)
     ax.set_xlabel('Features')
     ax.set_ylabel('Cumulative Feature Importance')
     if one_ferret:
-        ax.set_title('Elbow Plot of Cumulative Feature Importance \n for the Reaction Time Model \n for ' + ferrets) #, fontsize=20)
+        ax.set_title('Elbow Plot of Cumulative Feature Importance \n for the Reaction Time Model \n for ' + ferrets)
     else:
-        ax.set_title('Elbow Plot of Cumulative Feature Importance \n for the Reaction Time Model') #, fontsize=20)
-    # ax.tick_params(axis='x', rotation=45)  # rotate x-axis labels for better readability
+        ax.set_title('Elbow Plot of Cumulative Feature Importance \n for the Reaction Time Model')
     sns.despine(ax=ax, offset=10, trim=True)
     ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
     if savefig:
@@ -164,18 +168,23 @@ def shap_summary_plot(
         fig, ax = plt.subplots()
     if isinstance(cmap, str):
         cmap = mpl.colormaps[cmap]
+    
+    # Ensure shap_values matches the shape of X
+    if isinstance(shap_values, (int, float)):
+        # If scalar, repeat for each row in X
+        shap_values = np.tile(shap_values, (X.shape[0], 1))
+    elif len(shap_values.shape) == 1:
+        # If 1D array, reshape to match X's rows
+        shap_values = np.tile(shap_values, (X.shape[0], 1))
+    elif len(shap_values.shape) == 2 and shap_values.shape[0] != X.shape[0]:
+        # If 2D array but wrong number of rows, reshape
+        shap_values = np.tile(shap_values, (X.shape[0] // shap_values.shape[0] + 1, 1))[:X.shape[0]]
+    
     plt.sca(ax)
-    shap.summary_plot(shap_values, X, show=False, cmap=cmap)
-    # if one_ferret:
-    #     plt.title('Features over impact in reaction time for ' + ferrets)
-    # else:
-    #     plt.title('Features over impact in reaction time')
-    ax.set_xlabel('SHAP value (impact on model output) on reaction time')
-
-    ax.set_xlabel('SHAP Value (impact on model output)') #, fontsize=18)
-    #increase the y tick label size
-    ax.tick_params(axis='y', which='major') #, labelsize=18)
-    ax.set_ylabel('Features')#, fontsize=18)
+    shap.summary_plot(shap_values, X, sort=False, show=False, cmap=cmap)
+    ax.set_xlabel('SHAP Value (impact on model output)')
+    ax.tick_params(axis='y', which='major')
+    ax.set_ylabel('Features')
     if savefig:
         fig.savefig(savefig_path, dpi=300)
     if show_plots:
@@ -458,6 +467,71 @@ def full_shap_plot_FA_CR(
     fig.tight_layout()
     return fig, ax_dict
 
+def shap_plots_separated(
+        xg_reg,
+        shap_values,
+        X,
+        X_train,
+        X_test,
+        perm_result,
+        color='black',
+        shap_values2=None,
+        savefig=False,
+        savefig_path=None,
+        cmapcustom=mpl.colormaps['viridis'],
+    ):
+    """
+    Plot and (optionally) save the three main SHAP-related plots as separate figures:
+    1. Elbow plot of cumulative SHAP feature importance
+    2. Permutation importance plot
+    3. SHAP summary plot
+    """
+    figs_axes = {}
+    # 1. Elbow plot
+    fig1, ax1 = plt.subplots(figsize=(8, 6))
+    elbowplot_cumulative_shap(
+        shap_values,
+        X,
+        color=color,
+        ax=ax1,
+        savefig=False,
+    )
+    ax1.set_title('Elbow Plot of Cumulative Feature Importance', fontsize=10)
+    set_font_axes(ax1, add_size=0, size_ticks=8, size_labels=10, size_text=10, size_title=10, family='Arial')
+    figs_axes['elbow'] = (fig1, ax1)
+
+    # 2. Permutation importance plot
+    fig2, ax2 = plt.subplots(figsize=(8, 6))
+    plot_permutation_importance(
+        perm_result,
+        X_test,
+        color=color,
+        ax=ax2,
+        savefig=False,
+    )
+    ax2.set_title('Permutation Importance', fontsize=10)
+    set_font_axes(ax2, add_size=0, size_ticks=8, size_labels=10, size_text=10, size_title=10, family='Arial')
+    figs_axes['permutation'] = (fig2, ax2)
+
+    # 3. SHAP summary plot
+    fig3, ax3 = plt.subplots(figsize=(8, 6))
+    sorted_idx = perm_result.importances_mean.argsort()[::-1]
+    sorted_columns = X_test.columns[sorted_idx]
+    X_sorted = X[sorted_columns]
+    shap_values_sorted = shap_values[:, sorted_idx]
+    shap_summary_plot(
+        shap_values_sorted,
+        X_sorted,
+        ax=ax3,
+        cmap=cmapcustom,
+        savefig=False,
+    )
+    ax3.set_title('SHAP Summary Plot', fontsize=10)
+    set_font_axes(ax3, add_size=0, size_ticks=8, size_labels=10, size_text=10, size_title=10, family='Arial')
+    figs_axes['summary'] = (fig3, ax3)
+
+    return figs_axes
+
 def full_shap_plot(
         xg_reg,
         shap_values,
@@ -631,6 +705,13 @@ def plot_interaction_single(
         'alpha' : 0.5,
         'size' : 4,
     }
+
+    plots_kwargs_point = {
+        'linewidth' : 0.1,
+        'alpha' : 0.8,
+        'markersize' : 10,
+    }
+
     # Obtain the indices of the features to plot
     feature_a_index = X.columns.get_loc(feature_a)
     feature_b_index = X.columns.get_loc(feature_b)
@@ -644,7 +725,18 @@ def plot_interaction_single(
             palette=cmap,
             ax=ax,
             legend=False,
+            dodge=True,
             **plots_kwargs_strip,      
+        )
+        sns.pointplot(
+            x=X_disp[feature_a],
+            y=shap_values[:, feature_a_index],
+            hue=X_disp[feature_b],
+            palette=cmap,
+            ax=ax,
+            legend=False,
+            dodge=True,
+            **plots_kwargs_point,      
         )
 
         ax=axes[1]
