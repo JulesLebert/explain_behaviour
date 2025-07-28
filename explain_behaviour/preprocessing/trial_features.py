@@ -18,7 +18,13 @@ def create_trial_features(df, config=None):
     if "BaselineMotionEnergy" in config['whisker_features']:
         df = add_baseline_motion_energy(df)
         features['BaselineMotionEnergy'] = df['BaselineMotionEnergy']
-        features = features.loc[features.BaselineMotionEnergy < 100000]
+        features = features.loc[features.BaselineMotionEnergy < 100000] # Remove 1 weird outlier
+
+    if 'dlc_features' in config:
+        df = add_dlc_features(df)
+        for dlc_feature in config['dlc_features']:
+            features[dlc_feature] = df[dlc_feature]
+        
     # Basic information
     features['context'] = df['context']
     features['subject'] = df['subject']
@@ -97,6 +103,30 @@ def create_trial_features(df, config=None):
     features['reaction_time'] = df['lick_time'] - df['start_time']
     
     return features
+
+def add_dlc_features(
+        df,
+        dlc_features_path = '/mnt/lsens-analysis/Jules_Lebert/behaviour/context_behaviour/combined_dlc_results/combined_dlc_summary.csv'
+    ):
+    dlc_features_path = Path(dlc_features_path)
+    df_dlc = pd.read_csv(dlc_features_path)
+
+    df['trial_id'] = df.groupby('session_name').cumcount()
+    
+    df_merged = pd.merge(
+        df,
+        df_dlc,
+        left_on=['session_name', 'trial_id'],
+        right_on=['session_id', 'trial_id'],
+        how='inner',
+        suffixes=('', '_y')  # Keep original column names for left df, add _y suffix for right df
+    )
+
+    # Drop the session_id column since we already have session_name
+    if 'session_id' in df_merged.columns:
+        df_merged = df_merged.drop(columns=['session_id'])
+
+    return df_merged
 
 def add_baseline_motion_energy(
         df, 

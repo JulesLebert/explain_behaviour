@@ -1,0 +1,80 @@
+# Whisker analysis configuration
+# This configuration file contains parameters for whisker-specific behavioral analysis
+
+mode: classification
+leave_out_one_session: true  # Leave out one session for testing
+
+
+# Analysis parameters
+analysis_params:
+  optimize: true  # Whether to run hyperparameter optimization
+  use_smote: false  # Whether to use SMOTE for handling class imbalance
+  n_trials: 500  # Number of optimization trials
+  file_prefix: whisker_all_contexts
+
+# Feature columns for whisker analysis
+whisker_features:
+  - context
+  - subject
+  - cum_water
+  - prev_trial_correct
+  # - trial_number
+  # - context_block_index
+  # - trial_in_block
+  - whisker_trial_in_block
+  # - time_in_context
+  - prev_trial_water
+  - last_stimulus_type
+  - prev_whisker_rewarded
+  - time_since_last_stimulus
+  # - session
+  - lick_flag
+
+dlc_features:
+  - pupil_area_nanmean
+  - whisker_velocity_mean_abs
+  - jaw_angle_mean_abs_diff
+
+feature_labels:
+  - Context
+  - Mouse ID
+  - Cumulative water
+  - Previous trial correct
+  # - Trial in block
+  - Whisker trial in block
+  # - Time since transition
+  - Previous trial water
+  - Last stimulus type
+  - Previous whisker rewarded
+  - Time since last stimulus
+  # - Session ID
+  - Lick flag
+
+dlc_features_labels:
+  - Pupil Area
+  - Whisker Speed
+  - Jaw Speed
+
+outcome_column: Lick flag
+
+# Categorical columns for analysis
+categorical_columns:
+  - Context
+  - Mouse ID
+  - Previous trial correct
+  - Previous whisker rewarded
+  - Last stimulus type
+  - Session ID
+
+# Feature interactions to analyze
+interaction_features_discrete:
+  - [Whisker trial in block, Context]
+  # - [Jaw Angle std, Context]
+  # - [Pupil Area std, Context]
+  # - [Whisker Angle std, Context]
+  # - [Context, Jaw Angle std]
+  # - [Context, Pupil Area std]
+  # - [Context, Whisker Angle std]
+
+# interaction_features_continuous:
+#   - [Time since transition, Context]

@@ -1,7 +1,7 @@
 from pathlib import Path
 import pandas as pd
 import numpy as np
-rng = np.random.default_rng(2) # For reproducibility
+rng = np.random.default_rng(20) # For reproducibility
 
 import yaml
 from explain_behaviour.models.behavioural_analysis_GBM import BehavioralAnalysisGBM
@@ -164,11 +164,13 @@ def plot_interaction_only(
 
 def main():
     # Configuration
-    config_name = 'whisker_classification'  # Change this to use different config files
+    config_name = 'whisker_classification_dlc'  # Change this to use different config files
     # load_dir = 'run_20250619_112522' # Set to a directory name to load previous results, e.g., 'run_20250318_171524'
     load_dir = None
 
-    results_dir = Path(__file__).parent.parent / 'results' / config_name
+    # results_dir = Path(__file__).parent.parent / 'results' / config_name
+    results_dir = Path('/mnt/lsens-analysis/Jules_Lebert/results/context/behaviour_model/')
+    results_dir = results_dir / config_name
     results_dir.mkdir(parents=True, exist_ok=True)
     
     if load_dir:
@@ -204,14 +206,18 @@ def main():
             df_use = df_use.loc[df_use.trial_type.isin(['whisker_trial', 'auditory_trial'])]
             df_use = df_use.loc[df_use.trial_outcome == 'Hit']
 
+        if 'dlc_features' in config:
+            config['whisker_features'] = config['whisker_features'] + config['dlc_features']
+            config['feature_labels'] = config['feature_labels'] + config['dlc_features_labels']
+
+        if config['leave_out_one_session']:
+            test_session = rng.choice(df_use['session'].unique())
+            df_test = df_use[df_use['session'] == test_session]
+            df_use = df_use[df_use['session'] != test_session]
+
         # Select features
         df_use = df_use[config['whisker_features']]
         df_use = df_use.rename(columns=dict(zip(df_use.columns, config['feature_labels'])))
-        
-        if config['leave_out_one_session']:
-            test_session = rng.choice(df_use['Session ID'].unique())
-            df_test = df_use[df_use['Session ID'] == test_session]
-            df_use = df_use[df_use['Session ID'] != test_session]
 
         # Initialize analyzer
         analyzer = BehavioralAnalysisGBM(

@@ -94,6 +94,9 @@ def plot_clustered_correlation(corr_matrix: pd.DataFrame, save_path: Path):
                 square=True)
     plt.title("Clustered Feature Correlation Matrix")
     plt.tight_layout()
+    plt.rcParams['pdf.fonttype'] = 42
+    plt.rcParams['ps.fonttype'] = 42
+    plt.rcParams['svg.fonttype'] = 'none'
     for ext in ['png', 'pdf', 'svg']:
         plt.savefig(save_path.with_suffix(f'.{ext}'), dpi=300, bbox_inches='tight')
     plt.close()
@@ -118,7 +121,7 @@ def plot_vif(vif_data: pd.DataFrame, save_path: Path):
 
 def main():
     # Configuration
-    config_name = 'whisker_classification'
+    config_name = 'whisker_classification_dlc'
     
     # Load configuration
     config_path = Path(__file__).parent.parent / 'configs' / 'analysis' / f'{config_name}.yaml'
@@ -127,7 +130,7 @@ def main():
     # Load and prepare data
     df_path = Path(__file__).parent.parent / 'data' / 'expert_data.csv'
     df = pd.read_csv(df_path)
-    df_use = prepare_behavior_features(df)
+    df_use = prepare_behavior_features(df, config=config)
     
     # Filter data based on mode
     if config['mode'] == 'classification':
@@ -136,7 +139,11 @@ def main():
         df_use = df_use.dropna(subset=['reaction_time'])
         df_use = df_use.loc[df_use.trial_type.isin(['whisker_trial', 'auditory_trial'])]
         df_use = df_use.loc[df_use.trial_outcome == 'Hit']
-    
+
+    if 'dlc_features' in config:
+        config['whisker_features'] = config['whisker_features'] + config['dlc_features']
+        config['feature_labels'] = config['feature_labels'] + config['dlc_features_labels']
+
     # Select features and rename columns
     X = df_use[config['whisker_features']].copy()
     X = X.rename(columns=dict(zip(X.columns, config['feature_labels'])))
@@ -153,7 +160,7 @@ def main():
     print(X_prep.dtypes)
     
     # Create save directory
-    save_dir = Path(__file__).parent.parent / 'results' / config_name / 'correlation_analysis'
+    save_dir = Path('/mnt/lsens-analysis/Jules_Lebert/results/context/behaviour_model/') / config_name / 'correlation_analysis_dlc'
     save_dir.mkdir(parents=True, exist_ok=True)
     
     # Calculate and plot correlation matrix

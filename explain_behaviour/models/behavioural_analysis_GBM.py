@@ -58,7 +58,16 @@ class BehavioralAnalysisGBM:
         if categorical_cols:
             for col in categorical_cols:
                 if col in df_use.columns:
-                    mapping = {val: idx for idx, val in enumerate(df_use[col].unique())}
+                    # mapping = {val: idx for idx, val in enumerate(np.sort(df_use[col].unique()))}
+                    unique_vals = df_use[col].unique()
+            
+                    try:
+                        sorted_vals = np.sort(unique_vals)
+                    except TypeError:
+                        # Can't sort (mixed types), use original order
+                        sorted_vals = unique_vals
+                    
+                    mapping = {val: idx for idx, val in enumerate(sorted_vals)}
                     df_use[col] = df_use[col].map(mapping)
                     cat_mappings[col] = mapping
 
@@ -362,7 +371,7 @@ class BehavioralAnalysisGBM:
             param_grid = {
                 "subsample": trial.suggest_float("subsample", 0.1, 1),
                 "learning_rate": trial.suggest_float("learning_rate", 0.0001, 0.5, log=True),
-                "max_depth": trial.suggest_int("max_depth", 3, 20),
+                "max_depth": trial.suggest_int("max_depth", 7, 20),
                 "min_child_weight": trial.suggest_int("min_child_weight", 1, 200),
                 "reg_alpha": trial.suggest_float("reg_alpha", 0.001, 10, log=True),
                 "reg_lambda": trial.suggest_float("reg_lambda", 0.001, 10, log=True),
@@ -383,7 +392,7 @@ class BehavioralAnalysisGBM:
             param_grid["early_stopping_rounds"] = 100
 
             model = xgb.XGBClassifier(**param_grid) if self.mode == 'classification' else xgb.XGBRegressor(**param_grid)
-            model.set_params(random_state=self.random_state, verbosity=0)
+            model.set_params(random_state=self.random_state, verbosity=0, n_jobs=20)
 
             # Create evaluation set
             eval_set = [(X_valid, y_valid)]
@@ -399,7 +408,12 @@ class BehavioralAnalysisGBM:
             return log_loss(y_valid, preds) if self.mode == 'classification' else mean_squared_error(y_valid, preds)
 
         # Create study
-        study = optuna.create_study(direction="minimize", study_name="XGBoost " + self.mode.capitalize())
+        sampler = optuna.samplers.TPESampler(seed=self.random_state) # For reproducibility
+        study = optuna.create_study(
+            direction="minimize", 
+            study_name="XGBoost " + self.mode.capitalize(),
+            sampler=sampler,
+            )
 
         # Split data for optimization
         X_train_opt, X_valid, y_train_opt, y_valid = train_test_split(
@@ -417,7 +431,7 @@ class BehavioralAnalysisGBM:
         func = lambda trial: objective(trial, X_train_smote, X_valid, y_train_smote, y_valid)
 
         # Run optimization
-        study.optimize(func, n_trials=n_trials, n_jobs=-1, show_progress_bar=True)
+        study.optimize(func, n_trials=n_trials, n_jobs=1, show_progress_bar=True)
 
         # Print results
         print("Number of finished trials: ", len(study.trials))
