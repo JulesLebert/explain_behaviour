@@ -58,7 +58,6 @@ results = analyzer.run_analysis(
     outcome_col='Outcome',
     categorical_cols=['Context', 'Subject'],
     optimize=True,
-    use_smote=True
 )
 
 # Generate visualizations
