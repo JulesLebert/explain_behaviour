@@ -21,7 +21,7 @@ def create_trial_features(df, config=None):
         features = features.loc[features.BaselineMotionEnergy < 100000] # Remove 1 weird outlier
 
     if 'dlc_features' in config:
-        df = add_dlc_features(df)
+        # df = add_dlc_features(df)
         for dlc_feature in config['dlc_features']:
             features[dlc_feature] = df[dlc_feature]
         
