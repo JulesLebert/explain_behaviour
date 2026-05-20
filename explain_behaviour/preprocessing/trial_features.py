@@ -25,6 +25,9 @@ def create_trial_features(df, config=None):
         for dlc_feature in config['dlc_features']:
             features[dlc_feature] = df[dlc_feature]
         
+    if 'time_in_context' in config['whisker_features']:
+        features['time_in_context'] = df['time_in_context']
+
     # Basic information
     features['context'] = df['context']
     features['subject'] = df['subject']
@@ -32,7 +35,7 @@ def create_trial_features(df, config=None):
     features['trial_type'] = df['trial_type']
     features['lick_flag'] = df['lick_flag']
     features['trial_outcome'] = df['trial_outcome']
-    features['time_in_context'] = df['time_in_context']
+
     
     # Previous trial context (shift by 1, fill first trial with -1)
     features['prev_context'] = df.groupby('session_name')['context'].shift(1).fillna(-1)
