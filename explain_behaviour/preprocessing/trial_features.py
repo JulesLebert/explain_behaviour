@@ -35,7 +35,13 @@ def create_trial_features(df, config=None):
     features['trial_type'] = df['trial_type']
     features['lick_flag'] = df['lick_flag']
     features['trial_outcome'] = df['trial_outcome']
-
+    
+    if 'dlc_features' in config:
+        for dlc_feature in config['dlc_features']:
+            # Apply min-max normalization per subject_id to all DLC features
+            features[dlc_feature] = features.groupby('subject')[dlc_feature].transform(
+                lambda x: (x - x.min()) / (x.max() - x.min()) if x.max() != x.min() else 0
+            )
     
     # Previous trial context (shift by 1, fill first trial with -1)
     features['prev_context'] = df.groupby('session_name')['context'].shift(1).fillna(-1)
